@@ -1,43 +1,46 @@
 ---
 name: daydeck
-description: Generate an AI-powered daily brief from your Slack channels, Gmail, unanswered DMs, and Google Calendar — with prioritised actions and day management tips tailored to your day.
+description: Generate an AI-powered daily brief from Slack, Gmail, Calendar, GitHub PRs, Jira, and Confluence — with prioritised actions and day management tips tailored to your day.
 ---
 
 # Daydeck — Daily Command Center
 
 ## Overview
 
-Pulls your Slack @mentions, unanswered DMs, Gmail, and today's calendar into a concise daily brief with AI-generated priorities and day management recommendations. Runs entirely inside Claude Code using your own credentials — no shared tokens, no central server.
+Pulls your Slack @mentions, unanswered DMs, Gmail, calendar, GitHub PRs awaiting action, Jira assignments, and Confluence mentions into a concise daily brief with AI-generated priorities and day management recommendations. Runs entirely inside Claude Code using your own credentials — no shared tokens, no central server.
 
 ---
 
 ## Requirements
 
-At least one of the following must be configured:
+Configure whichever sources you use. At least one is needed.
 
-**Slack** — install the official Claude Code plugin:
-```bash
-claude plugin install slack@claude-plugins-official --scope user
-```
-
-**Google (Gmail + Calendar)** — authorize via gcloud:
-```bash
-# Install gcloud if needed: https://cloud.google.com/sdk/docs/install
-# Then authorize with the required scopes:
-bash ~/.claude/skills/daydeck/scripts/google-auth.sh
-```
+| Source | Setup |
+|---|---|
+| **Slack** | `claude plugin install slack@claude-plugins-official --scope user` |
+| **Google** (Gmail + Calendar) | `bash ~/.claude/skills/daydeck/scripts/google-auth.sh` |
+| **GitHub** | `gh auth login` (if not already authenticated) |
+| **Jira + Confluence** | `claude mcp add atlassian` (Atlassian MCP plugin) |
 
 ---
 
 ## Step 0 — Check what's available
 
 ```bash
-claude plugins list 2>&1 | grep -i "slack" && echo "SLACK=ok" || echo "SLACK=unavailable"
-which gws 2>/dev/null && echo "GWS=ok" || echo "GWS=unavailable"
-test -f ~/.config/gcloud/application_default_credentials.json && echo "ADC=ok" || echo "ADC=unavailable"
+# Slack plugin
+claude plugins list 2>&1 | grep -i slack && echo "SLACK=ok" || echo "SLACK=unavailable"
+
+# Google
+test -f ~/.config/gcloud/application_default_credentials.json && echo "GOOGLE=ok" || echo "GOOGLE=unavailable"
+
+# GitHub CLI
+gh auth status 2>&1 | grep "Logged in" && echo "GITHUB=ok" || echo "GITHUB=unavailable"
+
+# Atlassian MCP
+claude mcp list 2>&1 | grep -i atlassian && echo "ATLASSIAN=ok" || echo "ATLASSIAN=unavailable"
 ```
 
-Note which services are available. Proceed with whatever is configured — at least one is needed.
+Note which are available. Skip unavailable sources gracefully — do not stop.
 
 ---
 
@@ -45,27 +48,21 @@ Note which services are available. Proceed with whatever is configured — at le
 
 Ask the user:
 
-> **Which Slack channels should I check?**
-> Enter channel names separated by commas, or press Enter to skip channel scanning and only look at @mentions and DMs.
+> **Slack channels to scan?** (comma-separated, or Enter to skip channels and only check @mentions + DMs)
 
-> **How many hours back should I look?** (default: 24)
+> **Hours back to look?** (default: 24)
 
-Store the answers and use them in the steps below.
+> **GitHub orgs or repos to focus on?** (e.g. `myorg`, `myorg/myrepo` — or Enter for all)
 
 ---
 
-## Step 2 — Refresh Google token (if gws is available)
+## Step 2 — Refresh Google token (if available)
 
 ```bash
 export GCLOUD_SDK_ROOT=$(gcloud info --format="value(installation.sdk_root)" 2>/dev/null)
 export PYTHONPATH="$GCLOUD_SDK_ROOT/lib/third_party:$GCLOUD_SDK_ROOT/lib"
 
-# Use the user's own GCP project — ask if not known
 GCP_PROJECT=${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null)}
-if [ -z "$GCP_PROJECT" ]; then
-  echo "No GCP project set. Run: gcloud config set project YOUR_PROJECT_ID"
-  exit 1
-fi
 export GOOGLE_WORKSPACE_PROJECT_ID=$GCP_PROJECT
 
 export GOOGLE_WORKSPACE_CLI_TOKEN=$(python3 -c "
@@ -82,55 +79,37 @@ if not creds.valid:
 print(creds.token)
 " 2>/dev/null)
 
-test -n "$GOOGLE_WORKSPACE_CLI_TOKEN" && echo "Google token OK" || echo "Google token FAILED — will skip Gmail/Calendar"
+test -n "$GOOGLE_WORKSPACE_CLI_TOKEN" && echo "Google token OK" || echo "Google token FAILED — skipping Gmail/Calendar"
 ```
 
-If the token fails, note it and skip Steps 4 and 5. Do not stop.
+---
+
+## Step 3 — Fetch Slack activity (if available)
+
+**@mentions:**
+Use `slack_search_public` with query `<@ME>` for the configured time window.
+
+**Unanswered DMs:**
+Use `slack_search_public_and_private` with `channel_types="im"` for the last N hours.
+From results, identify conversations where the **last message was not from you** — those are unanswered.
+
+**Channels (if specified):**
+Use `slack_read_channel` for each channel. Summarise key discussions, decisions, open questions.
 
 ---
 
-## Step 3 — Fetch Slack activity
-
-**@mentions and DMs (always):**
-
-Search for public @mentions of the current user from the last N hours:
-- Use `slack_search_public` with query: `<@ME>` for the configured time window
-
-Search for unanswered DMs:
-- Use `slack_search_public_and_private` with `channel_types="im"` for the last N hours
-- From the results, identify conversations where the **last message was NOT from you** — those are unanswered
-
-**Channels (if user specified any):**
-- For each channel, use `slack_read_channel` to fetch recent messages
-- Summarise key discussions, decisions, and open questions
-
-Collect:
-- Threads awaiting your response
-- Decisions made that affect you
-- Blockers or escalations
-- Unanswered DMs grouped by sender
-
----
-
-## Step 4 — Fetch Gmail
+## Step 4 — Fetch Gmail (if available)
 
 ```bash
 gws gmail users messages list \
   --params '{"userId": "me", "q": "is:unread OR is:important newer_than:1d", "maxResults": 20}'
 ```
 
-For each message ID returned, fetch metadata:
-
-```bash
-gws gmail users messages get \
-  --params '{"userId": "me", "id": "MESSAGE_ID", "format": "metadata", "metadataHeaders": ["From", "Subject", "Date"]}'
-```
-
-Collect sender, subject, snippet. Note which are unread vs important. Filter out automated notifications (Jira, GitHub, calendar invites, newsletters) — flag only emails requiring a human response.
+For each message, fetch metadata (From, Subject). Filter out automated notifications (Jira, GitHub bots, newsletters) — flag only emails needing a human response.
 
 ---
 
-## Step 5 — Fetch today's calendar
+## Step 5 — Fetch Calendar (if available)
 
 ```bash
 TODAY_START=$(date -u +"%Y-%m-%dT00:00:00Z")
@@ -140,46 +119,132 @@ gws calendar events list \
   --params "{\"calendarId\": \"primary\", \"timeMin\": \"$TODAY_START\", \"timeMax\": \"$TODAY_END\", \"singleEvents\": true, \"orderBy\": \"startTime\", \"maxResults\": 20}"
 ```
 
-From the results note:
-- Meeting titles, start/end times, and key attendees
-- Any **time conflicts** (overlapping events)
-- **Focus windows** — gaps of 30+ minutes between meetings
-- All-day reminders or deadlines
+Note: meeting times, attendees, conflicts (overlapping events), and focus windows (30+ min gaps).
 
 ---
 
-## Step 6 — Generate the Daily Brief
+## Step 6 — Fetch GitHub activity (if available)
 
-Using all collected data, produce the output below. Every point must be grounded in actual data fetched — no generic advice.
+Run all three in parallel:
+
+```bash
+# PRs awaiting your review
+gh pr list \
+  --search "review-requested:@me state:open" \
+  --json title,url,author,createdAt,reviewDecision,additions,deletions \
+  --limit 10
+
+# PRs you authored that need attention (changes requested or review pending)
+gh pr list \
+  --author "@me" \
+  --state open \
+  --json title,url,createdAt,reviewDecision,isDraft,labels \
+  --limit 10
+
+# PRs and issues mentioning you (comments, review requests)
+gh search prs \
+  --mentions "@me" \
+  --state open \
+  --json title,url,author,createdAt,repository \
+  --limit 10
+
+# Issues assigned to you
+gh issue list \
+  --assignee "@me" \
+  --state open \
+  --json title,url,createdAt,labels,repository \
+  --limit 10
+```
+
+From the results identify:
+- PRs blocked on your review (especially if the author has pinged you)
+- Your own PRs with changes requested or stale (no activity in 2+ days)
+- Issues due or urgent based on labels
 
 ---
+
+## Step 7 — Fetch Jira activity (if Atlassian MCP available)
+
+Use the Atlassian MCP tools to:
+
+**Issues assigned to you:**
+Search Jira for issues assigned to the current user with status not Done:
+```
+assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC
+```
+Fetch up to 15 results. Note ticket key, summary, status, priority, and due date.
+
+**Recent @mentions:**
+Search for issues where you were mentioned in comments in the last 2 days:
+```
+issueFunction in commented("by currentUser()") AND updated >= -2d
+```
+Note any that have open questions directed at you.
+
+**Blocked or urgent items:**
+Look for issues with priority Highest/High, or labels like `blocked`, `urgent`, `needs-input`.
+
+---
+
+## Step 8 — Fetch Confluence mentions (if Atlassian MCP available)
+
+Use the Atlassian MCP tools to search Confluence for:
+
+- Pages where you were **@mentioned** in the last 2 days
+- Pages you are listed as **owner or contributor** that were recently updated
+- Any pages with open **comments or tasks assigned to you**
+
+Summarise the page title, space, who mentioned you, and what action (if any) is needed.
+
+---
+
+## Step 9 — Generate the Daily Brief
+
+Synthesise everything collected and produce the output below. Every point must be grounded in actual fetched data. Filter out noise (bot notifications, automated Jira transitions, FYI-only emails).
 
 ```
 🌅 DAYDECK — [Day, Date]
 ════════════════════════════════════════
 
 📋 DAILY BRIEF
-[2-3 sentences on the key themes of today]
+[2-3 sentences capturing the key themes and any dominant urgency]
 
 ⚡ KEY ALERTS
-[Bullet list of urgent items — unanswered DMs, unread emails needing replies,
-open Slack threads. Name senders, subjects, channels specifically.]
+[Bulleted list — unanswered DMs, PRs needing review, Jira items
+with deadlines or blockers, emails needing a human reply.
+Name senders, PR titles, ticket keys, Confluence pages specifically.]
 
 🎯 TOP 3 PRIORITIES
-1. [Most important — explain why, grounded in data]
+1. [Most important — state what and why, grounded in data]
 2. [Second]
 3. [Third]
 
 🗓️ YOUR DAY
-[Time | Meeting | Key attendees]
-[Flag conflicts with ⚠️, flag focus windows as open blocks]
+[HH:MM–HH:MM  Meeting title  [key attendees]]
+[Flag ⚠️ for conflicts, mark open gaps as focus windows]
+
+💬 SLACK
+[Key @mentions and unanswered DMs needing a reply]
+
+📧 EMAIL
+[Emails needing a human response — skip bot/automated mail]
+
+🐙 GITHUB
+[PRs awaiting your review | Your PRs with changes requested | Assigned issues]
+
+📋 JIRA
+[Assigned tickets by priority | Recent @mentions needing a response]
+
+📄 CONFLUENCE
+[Pages where you were mentioned | Open tasks assigned to you]
 
 💡 DAY MANAGEMENT TIPS
 [3-5 specific, actionable tips based on the actual data:
-calendar gaps, email urgency, DMs to batch, things to defer, things to delegate]
+when to review PRs, how to batch Slack/email, what to defer,
+calendar gaps to protect for focus work]
 
 ────────────────────────────────────────
-Sources: [Slack @mentions | Slack DMs | Gmail | Calendar] — whichever were available
+Sources: [list which were available and fetched]
 Time window: last [N] hours
 ```
 
@@ -187,6 +252,6 @@ Time window: last [N] hours
 
 ## Notes
 
-- All data is fetched using **your own credentials only** — Slack reads your workspace via your OAuth session, Gmail and Calendar use your own Google account via gcloud ADC.
-- If only some sources are available, the brief is generated from whatever was fetched.
-- To drill into any item ("show me that thread", "read that email"), use the available tools to fetch more detail.
+- **Your data only.** All sources use your own OAuth/credentials. Nothing is shared.
+- **Graceful degradation.** Missing sources are skipped; the brief is generated from whatever was fetched.
+- **Drill down.** After the brief, ask Claude to expand any section: *"Show me that PR"*, *"Read that Jira ticket"*, *"What did they say in that Slack thread?"*
