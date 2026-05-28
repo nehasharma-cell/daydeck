@@ -1,0 +1,26 @@
+# Google credentials and tokens — never commit these
+google_token.json
+google_credentials.json
+.env
+*.env
+application_default_credentials.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Claude session state
+.claude/projects/
+.claude/todos/
+.claude/settings.local.json
+
+# Any generated brief output
+brief_*.md
+brief_*.txt
+daydeck_output.*
