@@ -114,16 +114,14 @@ else
   echo "  Skipped — run 'claude mcp add atlassian' any time to add it later"
 fi
 
-# ── Done ───────────────────────────────────────────────────────────────────
+# ── Done — launch first brief immediately ──────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Daydeck is ready ✓"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "  Start a new Claude Code session and ask:"
-echo "    How is my day?"
-echo "  or type:"
-echo "    /daydeck"
+echo "  Fetching your daily brief now..."
+echo "  (To update Daydeck later: cd $REPO_DIR && git pull)"
 echo ""
-echo "  To update later: cd $REPO_DIR && git pull"
-echo ""
+
+exec claude "How is my day?"
