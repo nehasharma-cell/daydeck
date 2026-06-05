@@ -126,10 +126,12 @@ Follow-up questions work too:
 ## Update
 
 ```bash
-cd daydeck && git pull
+cd daydeck && bash update.sh
 ```
 
-Symlinks mean updates are live immediately — no reinstall needed.
+`update.sh` pulls the latest changes and re-applies any new settings (like permission rules) — without touching your OAuth credentials or plugin setup. Changes are live immediately in any new Claude Code session.
+
+> **Already installed and just want the bug fixes?** `git pull` alone is enough for skill changes. Run `bash update.sh` if you also want the no-prompt permissions applied.
 
 ---
 
