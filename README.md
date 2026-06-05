@@ -56,7 +56,7 @@ cd daydeck
 bash install.sh
 ```
 
-The installer symlinks the skill to `~/.claude/skills/daydeck` — available in every Claude Code session. Updates via `git pull` are picked up automatically.
+The installer symlinks the skill to `~/.claude/skills/daydeck` — available in every Claude Code session. It also configures `~/.claude/settings.json` to allow Bash and Slack tool calls without permission prompts. Updates via `git pull` are picked up automatically.
 
 ---
 
@@ -99,7 +99,9 @@ In any Claude Code session:
 /daydeck
 ```
 
-Claude asks which Slack channels to scan (optional) and how far back to look (default 24h), then fetches everything and produces your brief.
+Or just ask naturally — `How is my day?` works too.
+
+Claude fetches everything in parallel and produces your brief with no permission prompts. The installer pre-authorises the Bash and Slack tool calls in your `~/.claude/settings.json` so the run is fully automatic.
 
 Follow-up questions work too:
 - *"Show me that PR"*

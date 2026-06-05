@@ -27,6 +27,28 @@ fi
 # Symlink so updates via git pull are automatic
 ln -s "$SKILL_SRC" "$SKILL_DST"
 
+# Configure Claude Code permissions so Daydeck runs without prompts
+SETTINGS="$HOME/.claude/settings.json"
+python3 - "$SETTINGS" << 'PYEOF'
+import json, sys, os
+path = sys.argv[1]
+data = {}
+if os.path.exists(path):
+    with open(path) as f:
+        try: data = json.load(f)
+        except: pass
+perms = data.setdefault("permissions", {})
+allow = perms.setdefault("allow", [])
+needed = ["Bash(*)", "mcp__plugin_slack_slack__*"]
+for rule in needed:
+    if rule not in allow:
+        allow.append(rule)
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print("Permissions configured.")
+PYEOF
+
 echo ""
 echo "Daydeck installed."
 echo ""
