@@ -24,39 +24,33 @@ Configure whichever sources you use. At least one is needed.
 
 ---
 
-## Step 0 — Check what's available
+## Step 0 — Check what's available (run in parallel, do not block)
+
+Run all four checks simultaneously in a single bash call. Note which pass. Skip unavailable sources gracefully — never stop or ask the user to configure anything.
 
 ```bash
-# Slack plugin
-claude plugins list 2>&1 | grep -i slack && echo "SLACK=ok" || echo "SLACK=unavailable"
-
-# Google
-test -f ~/.config/gcloud/application_default_credentials.json && echo "GOOGLE=ok" || echo "GOOGLE=unavailable"
-
-# GitHub CLI
-gh auth status 2>&1 | grep "Logged in" && echo "GITHUB=ok" || echo "GITHUB=unavailable"
-
-# Atlassian MCP
-claude mcp list 2>&1 | grep -i atlassian && echo "ATLASSIAN=ok" || echo "ATLASSIAN=unavailable"
+{
+  claude plugins list 2>&1 | grep -iq slack && echo "SLACK=ok" || echo "SLACK=unavailable"
+  test -f ~/.config/gcloud/application_default_credentials.json && echo "GOOGLE=ok" || echo "GOOGLE=unavailable"
+  gh auth status 2>&1 | grep -q "Logged in" && echo "GITHUB=ok" || echo "GITHUB=unavailable"
+  claude mcp list 2>&1 | grep -iq atlassian && echo "ATLASSIAN=ok" || echo "ATLASSIAN=unavailable"
+} 2>/dev/null
 ```
 
-Note which are available. Skip unavailable sources gracefully — do not stop.
+**Do not ask the user any questions.** Use these defaults:
+- Time window: last **24 hours**
+- Slack: @mentions + DMs only (no specific channels unless user already specified)
+- GitHub: all orgs/repos the authenticated user has access to
+
+Proceed immediately to fetching. All steps from here run in parallel where possible.
 
 ---
 
-## Step 1 — Ask for preferences
+## Step 1 — Refresh Google token and fetch all sources in parallel
 
-Ask the user:
+Fire Steps 1–6 simultaneously. Do not wait for one source before starting the next.
 
-> **Slack channels to scan?** (comma-separated, or Enter to skip channels and only check @mentions + DMs)
-
-> **Hours back to look?** (default: 24)
-
-> **GitHub orgs or repos to focus on?** (e.g. `myorg`, `myorg/myrepo` — or Enter for all)
-
----
-
-## Step 2 — Refresh Google token (if available)
+### Google token (if available)
 
 ```bash
 export GCLOUD_SDK_ROOT=$(gcloud info --format="value(installation.sdk_root)" 2>/dev/null)
@@ -84,7 +78,7 @@ test -n "$GOOGLE_WORKSPACE_CLI_TOKEN" && echo "Google token OK" || echo "Google 
 
 ---
 
-## Step 3 — Fetch Slack activity (if available)
+### Slack (if available)
 
 **@mentions:**
 Use `slack_search_public` with query `<@ME>` for the configured time window.
@@ -98,7 +92,7 @@ Use `slack_read_channel` for each channel. Summarise key discussions, decisions,
 
 ---
 
-## Step 4 — Fetch Gmail (if available)
+### Gmail (if available)
 
 ```bash
 gws gmail users messages list \
@@ -109,7 +103,7 @@ For each message, fetch metadata (From, Subject). Filter out automated notificat
 
 ---
 
-## Step 5 — Fetch Calendar (if available)
+### Calendar (if available)
 
 ```bash
 TODAY_START=$(date -u +"%Y-%m-%dT00:00:00Z")
@@ -123,7 +117,7 @@ Note: meeting times, attendees, conflicts (overlapping events), and focus window
 
 ---
 
-## Step 6 — Fetch GitHub activity (if available)
+### GitHub (if available)
 
 Run all three in parallel:
 
@@ -163,7 +157,7 @@ From the results identify:
 
 ---
 
-## Step 7 — Fetch Jira activity (if Atlassian MCP available)
+## Step 2 — Fetch Jira activity (if Atlassian MCP available)
 
 Use the Atlassian MCP tools to:
 
@@ -186,7 +180,7 @@ Look for issues with priority Highest/High, or labels like `blocked`, `urgent`, 
 
 ---
 
-## Step 8 — Fetch Confluence mentions (if Atlassian MCP available)
+## Step 3 — Fetch Confluence mentions (if Atlassian MCP available)
 
 Use the Atlassian MCP tools to search Confluence for:
 
@@ -198,7 +192,7 @@ Summarise the page title, space, who mentioned you, and what action (if any) is 
 
 ---
 
-## Step 9 — Generate the Daily Brief
+## Step 4 — Generate the Daily Brief
 
 Synthesise everything collected and produce the output below. Every point must be grounded in actual fetched data. Filter out noise (bot notifications, automated Jira transitions, FYI-only emails).
 
