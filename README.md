@@ -62,33 +62,24 @@ The installer symlinks the skill to `~/.claude/skills/daydeck` — available in 
 
 ## Setup
 
-Connect whichever tools you use. Each one is optional — Daydeck works with whatever is available.
+The installer handles everything interactively. **Slack and Google are set up automatically.** GitHub, Jira, and Confluence are optional — the installer asks if you want them.
 
-### Slack
-```bash
-claude plugin install slack@claude-plugins-official --scope user
-```
-Browser OAuth sign-in on first use. No tokens to manage.
+| Source | Included by default | How |
+|---|---|---|
+| **Slack** | ✓ | Installed automatically — browser OAuth on first use |
+| **Gmail + Calendar** | ✓ | gcloud auth runs during install |
+| **GitHub** | Optional | Installer prompts — needs `gh` CLI |
+| **Jira + Confluence** | Optional | Installer prompts — needs Atlassian MCP |
 
-### Google (Gmail + Calendar)
-Requires [Google Cloud SDK](https://cloud.google.com/sdk/docs/install).
-```bash
-bash ~/.claude/skills/daydeck/scripts/google-auth.sh
-gcloud config set project YOUR_GCP_PROJECT_ID
-```
+If you skipped an optional source and want to add it later:
 
-### GitHub
 ```bash
-gh auth login   # if not already authenticated
-```
-Uses your existing `gh` CLI session. No extra setup if you already use `gh`.
+# GitHub
+gh auth login
 
-### Jira + Confluence
-Requires the Atlassian MCP plugin for Claude Code:
-```bash
+# Jira + Confluence
 claude mcp add atlassian
 ```
-Follow the OAuth prompt to connect your Atlassian account.
 
 ---
 

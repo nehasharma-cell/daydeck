@@ -8,26 +8,27 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_SRC="$REPO_DIR/.claude/skills/daydeck"
 SKILL_DST="$HOME/.claude/skills/daydeck"
 
-echo "Installing Daydeck..."
+echo ""
+echo "╔══════════════════════════════════════╗"
+echo "║        Installing Daydeck 🌅          ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
 
-# Check Claude Code is installed
+# ── Preflight ──────────────────────────────────────────────────────────────
 if ! command -v claude &>/dev/null; then
-  echo "Error: Claude Code not found. Install it from https://claude.ai/code"
+  echo "✗ Claude Code not found. Install it from https://claude.ai/code"
   exit 1
 fi
 
-# Create skills dir if needed
+# ── Skill symlink ──────────────────────────────────────────────────────────
 mkdir -p "$HOME/.claude/skills"
-
-# Remove old install if present
 if [ -e "$SKILL_DST" ]; then
   rm -rf "$SKILL_DST"
 fi
-
-# Symlink so updates via git pull are automatic
 ln -s "$SKILL_SRC" "$SKILL_DST"
+echo "✓ Skill installed (~/.claude/skills/daydeck)"
 
-# Configure Claude Code permissions so Daydeck runs without prompts
+# ── Permissions (no-prompt runs) ───────────────────────────────────────────
 SETTINGS="$HOME/.claude/settings.json"
 python3 - "$SETTINGS" << 'PYEOF'
 import json, sys, os
@@ -39,30 +40,90 @@ if os.path.exists(path):
         except: pass
 perms = data.setdefault("permissions", {})
 allow = perms.setdefault("allow", [])
-needed = ["Bash(*)", "mcp__plugin_slack_slack__*"]
-for rule in needed:
+for rule in ["Bash(*)", "mcp__plugin_slack_slack__*"]:
     if rule not in allow:
         allow.append(rule)
 with open(path, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
-print("Permissions configured.")
 PYEOF
+echo "✓ Permissions configured (no prompts on run)"
 
 echo ""
-echo "Daydeck installed."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Setting up data sources"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ── Slack (default) ────────────────────────────────────────────────────────
 echo ""
-echo "Next steps:"
+echo "▸ Slack (included by default)"
+if claude plugin install slack@claude-plugins-official --scope user 2>/dev/null; then
+  echo "  ✓ Slack plugin installed — a browser window will open for sign-in on first use"
+else
+  echo "  ✓ Slack plugin already installed"
+fi
+
+# ── Google / Gmail + Calendar (default) ───────────────────────────────────
 echo ""
-echo "  1. Slack:"
-echo "     claude plugin install slack@claude-plugins-official --scope user"
+echo "▸ Google — Gmail + Calendar (included by default)"
+if command -v gcloud &>/dev/null; then
+  echo "  A browser window will open — sign in and click Allow."
+  bash "$SKILL_SRC/scripts/google-auth.sh"
+  echo ""
+  echo "  GCP project is needed to activate the Google Workspace API."
+  read -rp "  Enter your GCP project ID (or press Enter to skip): " GCP_PROJECT
+  if [ -n "$GCP_PROJECT" ]; then
+    gcloud config set project "$GCP_PROJECT"
+    echo "  ✓ GCP project set to $GCP_PROJECT"
+  else
+    echo "  ⚠ Skipped — run: gcloud config set project YOUR_PROJECT_ID"
+  fi
+else
+  echo "  ⚠ gcloud not found. Install Google Cloud SDK to enable Gmail + Calendar."
+  echo "    https://cloud.google.com/sdk/docs/install"
+  echo "    Then run: bash ~/.claude/skills/daydeck/scripts/google-auth.sh"
+fi
+
+# ── Optional sources ───────────────────────────────────────────────────────
 echo ""
-echo "  2. Google (Gmail + Calendar):"
-echo "     bash $SKILL_SRC/scripts/google-auth.sh"
-echo "     gcloud config set project YOUR_GCP_PROJECT_ID"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Optional sources"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# GitHub
 echo ""
-echo "  3. Start a new Claude Code session and type:"
-echo "     /daydeck"
+read -rp "▸ GitHub (PRs, issues, mentions)? [y/N] " ADD_GITHUB
+if [[ "$ADD_GITHUB" =~ ^[Yy]$ ]]; then
+  if command -v gh &>/dev/null; then
+    gh auth login
+    echo "  ✓ GitHub connected"
+  else
+    echo "  ⚠ gh CLI not found. Install from https://cli.github.com then run: gh auth login"
+  fi
+else
+  echo "  Skipped — run 'gh auth login' any time to add it later"
+fi
+
+# Jira + Confluence
 echo ""
-echo "To update Daydeck later:"
-echo "  cd $REPO_DIR && git pull"
+read -rp "▸ Jira + Confluence (tickets, mentions)? [y/N] " ADD_ATLASSIAN
+if [[ "$ADD_ATLASSIAN" =~ ^[Yy]$ ]]; then
+  claude mcp add atlassian
+  echo "  ✓ Atlassian MCP configured"
+else
+  echo "  Skipped — run 'claude mcp add atlassian' any time to add it later"
+fi
+
+# ── Done ───────────────────────────────────────────────────────────────────
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Daydeck is ready ✓"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "  Start a new Claude Code session and ask:"
+echo "    How is my day?"
+echo "  or type:"
+echo "    /daydeck"
+echo ""
+echo "  To update later: cd $REPO_DIR && git pull"
+echo ""
