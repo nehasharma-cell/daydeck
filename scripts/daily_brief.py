@@ -176,10 +176,16 @@ Generate the daily brief."""
 # ── Slack ──────────────────────────────────────────────────────────────────────
 
 def post_to_slack(text):
-    webhook_url = os.environ["SLACK_WEBHOOK_URL"]
-    resp = requests.post(webhook_url, json={"text": text}, timeout=10)
-    if resp.status_code != 200:
-        raise RuntimeError(f"Slack post failed: {resp.status_code} {resp.text}")
+    token = os.environ["SLACK_BOT_TOKEN"]
+    resp = requests.post(
+        "https://slack.com/api/chat.postMessage",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"channel": "U0A6PP5RZ4Z", "text": text},
+        timeout=10,
+    )
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Slack error: {data.get('error')}")
     print("✓ Brief sent to Slack")
 
 
