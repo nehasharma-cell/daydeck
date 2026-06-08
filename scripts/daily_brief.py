@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Daydeck daily brief — GitHub Actions runner.
-Fetches Google Calendar + GitHub data, generates brief with Claude, posts to Slack.
+Fetches Google Calendar + GitHub data, generates brief with GitHub Models, posts to Slack.
 """
 
 import os
@@ -114,7 +114,7 @@ def fetch_github():
 # ── Claude ─────────────────────────────────────────────────────────────────────
 
 def generate_brief(calendar_data, github_data):
-    import anthropic
+    from openai import OpenAI
 
     today = datetime.datetime.now().strftime("%A, %B %-d, %Y")
 
@@ -163,14 +163,19 @@ GITHUB:
 
 Generate the daily brief."""
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": user_content}],
-        system=system,
+    client = OpenAI(
+        base_url="https://models.inference.ai.azure.com",
+        api_key=os.environ["GITHUB_TOKEN"],
     )
-    return message.content[0].text
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        max_tokens=1024,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_content},
+        ],
+    )
+    return response.choices[0].message.content
 
 
 # ── Slack ──────────────────────────────────────────────────────────────────────
