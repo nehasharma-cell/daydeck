@@ -12,15 +12,26 @@ import requests
 # ── Google Calendar ────────────────────────────────────────────────────────────
 
 def get_google_token():
-    data = {
-        "client_id":     os.environ["GOOGLE_CLIENT_ID"],
-        "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-        "refresh_token": os.environ["GOOGLE_REFRESH_TOKEN"],
-        "grant_type":    "refresh_token",
-    }
-    resp = requests.post("https://oauth2.googleapis.com/token", data=data, timeout=10)
-    resp.raise_for_status()
-    return resp.json()["access_token"]
+    # Local: use gcloud ADC. GitHub Actions: use env var credentials.
+    if os.environ.get("GOOGLE_CLIENT_ID"):
+        data = {
+            "client_id":     os.environ["GOOGLE_CLIENT_ID"],
+            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+            "refresh_token": os.environ["GOOGLE_REFRESH_TOKEN"],
+            "grant_type":    "refresh_token",
+        }
+        resp = requests.post("https://oauth2.googleapis.com/token", data=data, timeout=10)
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+    else:
+        import google.auth
+        from google.auth.transport.requests import Request
+        scopes = ["https://www.googleapis.com/auth/calendar.readonly",
+                  "https://www.googleapis.com/auth/gmail.readonly"]
+        creds, _ = google.auth.default(scopes=scopes)
+        if not creds.valid:
+            creds.refresh(Request())
+        return creds.token
 
 
 def fetch_calendar(token):
@@ -32,7 +43,10 @@ def fetch_calendar(token):
         "https://www.googleapis.com/calendar/v3/calendars/primary/events"
         f"?timeMin={day_start}&timeMax={day_end}&singleEvents=true&orderBy=startTime&maxResults=20"
     )
-    resp = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+    headers = {"Authorization": f"Bearer {token}"}
+    if os.environ.get("GOOGLE_QUOTA_PROJECT"):
+        headers["x-goog-user-project"] = os.environ["GOOGLE_QUOTA_PROJECT"]
+    resp = requests.get(url, headers=headers, timeout=10)
     if resp.status_code != 200:
         return f"Calendar fetch failed: {resp.status_code} {resp.text[:200]}"
 
@@ -114,7 +128,7 @@ def fetch_github():
 # ── Claude ─────────────────────────────────────────────────────────────────────
 
 def generate_brief(calendar_data, github_data):
-    from openai import OpenAI
+    import anthropic
 
     today = datetime.datetime.now().strftime("%A, %B %-d, %Y")
 
@@ -163,19 +177,17 @@ GITHUB:
 
 Generate the daily brief."""
 
-    client = OpenAI(
-        base_url="https://models.inference.ai.azure.com",
-        api_key=os.environ["GH_MODELS_TOKEN"],
+    client = anthropic.Anthropic(
+        base_url=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        api_key=os.environ.get("ANTHROPIC_API_KEY", "placeholder"),
     )
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
         max_tokens=1024,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_content},
-        ],
+        system=system,
+        messages=[{"role": "user", "content": user_content}],
     )
-    return response.choices[0].message.content
+    return message.content[0].text
 
 
 # ── Slack ──────────────────────────────────────────────────────────────────────
